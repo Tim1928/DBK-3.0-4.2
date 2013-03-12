@@ -261,6 +261,10 @@ config ARCH_MSM9615
 	select MSM_RPM_REGULATOR
 	select MULTI_IRQ_HANDLER
 	select MSM_PM8X60 if PM
+	select MSM_XO
+	select MSM_QDSP6_APR
+	select MSM_AUDIO_QDSP6 if SND_SOC
+	select FIQ
 
 endmenu
 
@@ -1403,7 +1407,32 @@ config MSM_CPU_FREQ_MIN
 	depends on MSM_CPU_FREQ_SET_MIN_MAX
 	default 245760
 
+config MSM_CPU_FREQ_EXTREME_UV
+	bool "Enable Extreme Undervolt frequency mode"
+	depends on ARCH_MSM7X30
+	default n
+	help
+	Enabling this option change all voltage of all frequency for the extreme undervolt.
+
+	If unsure, say N.
+
+config MSM_CPU_FREQ_OVERCLOCKING
+	bool "Enable support for CPU overclocking"
+	depends on ARCH_MSM7X30
+	default y
+	help
+	Enabling this option allow to use all overclock frequencies.
+
+config MSM_CPU_FREQ_EXTREME_OVERCLOCKING
+	bool "Enable 1881mhz CPU overclocking"
+	depends on ARCH_MSM7X30
+	default n
+	help
+	Enabling this option allow to use 1881mhz overclock frequency.
+	Warning: prolonged use of this frequency cause instability of system!
+
 endif # CPU_FREQ_MSM
+
 
 config MSM_CPU_AVS
 	bool "Enable software controlled Adaptive Voltage Scaling (AVS)"
@@ -1978,6 +2007,33 @@ config BT_MSM_PINTEST
 	  This driver provides support for verifying the MSM to BT pin
 	  connectivity.
 
+choice
+	prompt "RAM options (NORMALMEM, BIGMEM, MAXMEM, PERSONAL)"
+
+config ANCORA_NORMALMEM
+       bool "select NORMAL memory config"
+       help 
+		Enable 352MB memory config. Breaks 720p only.	
+
+config ANCORA_BIGMEM
+       bool "select BIGMEM memory config"
+       help 
+		Enable 352MB memory config. Breaks 720p only.
+
+config ANCORA_HADI
+       bool "select HADI memory config"
+       help 
+		Enable 377MB memory config with working HD
+
+endchoice
+
+config FORCE_FAST_CHARGE
+	bool "Force AC charge mode at will"
+	default y
+	help
+	  A simple sysfs interface to force adapters that
+	  are detected as USB to charge as AC.
+
 config MSM_FAKE_BATTERY
 		depends on POWER_SUPPLY
 		default n
@@ -2166,5 +2222,21 @@ config MSM_DCVS
 	  The DCVS manager allows idle driver to feed the idle information to the
 	  algorithm and the algorithm returns a frequency for the core which is
 	  passed to the frequency change driver.
+
+config MSM_CACHE_DUMP
+	bool "Cache dumping support"
+	help
+	  Add infrastructure to dump the L1 and L2 caches to an allocated buffer.
+	  This allows for analysis of the caches in case cache corruption is
+	  suspected.
+
+config MSM_CACHE_DUMP_ON_PANIC
+	bool "Dump caches on panic"
+	depends on MSM_CACHE_DUMP
+	help
+	  By default, the caches are flushed on panic. This means that trying to
+	  look at them in a RAM dump will give useless data. Select this if you
+	  want to dump the L1 and L2 caches on panic before any flush occurs.
+	  If unsure, say N
 
 endif
