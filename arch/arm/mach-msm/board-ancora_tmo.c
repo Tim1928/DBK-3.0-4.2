@@ -77,6 +77,7 @@
 #include <linux/platform_data/qcom_crypto_device.h>
 
 #include "devices.h"
+#include "devices-msm7x30.h"
 #include "timer.h"
 #ifdef CONFIG_USB_G_ANDROID
 #include <linux/usb/android.h>
@@ -146,49 +147,20 @@ EXPORT_SYMBOL(sec_class);
 struct device *switch_dev;
 EXPORT_SYMBOL(switch_dev);
 
-#ifdef CONFIG_MSM_MORE_MEMORY // 351 MB of free RAM 
-#define MSM_PMEM_SF_SIZE          0x1800000 // 25.165.824 Bytes =  24 MB 
-#define MSM_PMEM_ADSP_SIZE        0x2A05000 // 44.060.672 Bytes =  42 MB 
-#else                         // 347 MB of free RAM 
-#define MSM_PMEM_SF_SIZE          0x1A00000 // 27.262.976 Bytes =  26 MB
-#define MSM_PMEM_ADSP_SIZE        0x2D00000 // 47.185.920 Bytes =  45 MB 
-#endif
-
-
-#ifdef CONFIG_MSM_MEMORY_VERY_HIGH // 370 MB of free RAM
-#define MSM_PMEM_SF_SIZE 0x0600000 // 6.291.456 Bytes = 6 MB
-#define MSM_PMEM_ADSP_SIZE 0x2A00000 // 44.040.192 Bytes = 42 MB
-#define MSM_PMEM_AUDIO_SIZE 0x0100000 // 1.048.576 Bytes = 1 MB
-#endif
-
-#define MSM_FLUID_PMEM_ADSP_SIZE  0x2800000 // 41.943.040 Bytes =  40 MB 
-#define PMEM_KERNEL_EBI0_SIZE     0x600000  //  6.291.456 Bytes =   6 MB 
-#define MSM_PMEM_AUDIO_SIZE       0x200000  //  2.097.152 Bytes =   2 MB 
-
-#define MSM_FLUID_PMEM_ADSP_SIZE 0x2800000 // 41.943.040 Bytes = 40 MB
-#define PMEM_KERNEL_EBI0_SIZE 0x0600000 // 6.291.456 Bytes = 6 MB
-
+#define MSM_PMEM_SF_SIZE	0x1A00000
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 3) /* 4bpp * 3 Pages */
 #else
 #define MSM_FB_PRIM_BUF_SIZE	(800 * 480 * 4 * 2) /* 4bpp * 2 Pages */
 #endif
 
-#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
-#define MSM_FB_PRIM_BUF_SIZE (800 * 480 * 4 * 3) /* 4bpp * 3 Pages */
-#else
-#define MSM_FB_PRIM_BUF_SIZE (800 * 480 * 4 * 2) /* 4bpp * 2 Pages */
-#endif
-
-#ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
-/* width x height x 3 bpp x 2 frame buffer */
-#define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((800 * 480 * 3 * 2), 4096)
-#else
-#define MSM_FB_OVERLAY0_WRITEBACK_SIZE 0
-#endif
-
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
+
+#define MSM_PMEM_ADSP_SIZE		0x2000000
+#define MSM_FLUID_PMEM_ADSP_SIZE	0x2800000
+#define PMEM_KERNEL_EBI0_SIZE		0x600000
+#define MSM_PMEM_AUDIO_SIZE		0x200000
 
 #define PMIC_GPIO_INT		27
 #define PMIC_VREG_WLAN_LEVEL	2900
@@ -5708,6 +5680,7 @@ static struct platform_device *devices[] __initdata = {
 #ifdef CONFIG_SAMSUNG_JACK
 	&sec_device_jack,
 #endif
+	&ram_console_device,
 };
 
 static struct msm_gpio msm_i2c_gpios_hw[] = {
@@ -7624,6 +7597,16 @@ static void __init msm7x30_allocate_memory_regions(void)
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
 	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
 		size, addr, __pa(addr));
+
+	/* RAM Console can't use alloc_bootmem(), since that zeroes the
+	 * region */
+	size = MSM_RAM_CONSOLE_SIZE;
+	ram_console_resources[0].start = msm_fb_resources[0].end+1;
+	ram_console_resources[0].end = ram_console_resources[0].start + size - 1;
+	pr_info("allocating %lu bytes at (%lx physical) for ram console\n",
+		size, (unsigned long)ram_console_resources[0].start);
+	/* We still have to reserve it, though */
+	reserve_bootmem(ram_console_resources[0].start,size,0);
 }
 
 static void __init msm7x30_map_io(void)
