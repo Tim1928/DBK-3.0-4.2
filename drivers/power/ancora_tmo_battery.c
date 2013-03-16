@@ -72,6 +72,10 @@ struct work_struct *p_batt_init;
 #include <linux/mfd/pmic8058.h>
 #include <linux/wakelock.h>
 
+#ifdef CONFIG_BLX
+#include <linux/blx.h>
+#endif
+
 #ifdef CONFIG_WIRELESS_CHARGING
 #define IRQ_WC_DETECT PM8058_GPIO_IRQ(PMIC8058_IRQ_BASE, (PM8058_GPIO(35)))
 #define GPIO_WC_DETECT PM8058_GPIO_PM_TO_SYS(PM8058_GPIO(35))
@@ -688,7 +692,7 @@ static void msm_batt_check_event(struct work_struct *work)
 #else
 #define MSM_BATTERY_ATTR(_name)		\
 {			\
-	.attr = { .name = #_name, .mode = 0444 },	\
+	.attr = { .name = #_name, .mode = 0644 },	\
 	.show = msm_batt_show_property,			\
 	.store = msm_batt_store_property,		\
 }
@@ -1485,6 +1489,15 @@ static int msm_batt_average_chg_current(int chg_current_adc)
 	return ret;
 }
 
+#ifdef CONFIG_BLX
+static int msm_batt_blx_charging_limit_reached(void)
+{
+// check Battery Life Extender charging limit (only if the chosen charging limit is less than 100%)
+int charging_limit = get_charginglimit();
+return (charging_limit < 100 && msm_batt_info.batt_capacity >= charging_limit);
+}
+#endif
+
 static int msm_batt_check_full_charging(int chg_current_adc)
 {
 	static unsigned int time_after_under_tsh = 0;
@@ -1539,12 +1552,52 @@ static int msm_batt_check_full_charging(int chg_current_adc)
 		}
 	}
 
+#ifdef CONFIG_BLX
+	static unsigned int time_after_under_blx_limit = 0;
+
+	// check Battery Life Extender charging limit
+	if (msm_batt_blx_charging_limit_reached())
+	{
+		if (time_after_under_blx_limit == 0)
+			time_after_under_blx_limit = jiffies;
+		else
+		{
+			if (time_after((unsigned long)jiffies, (unsigned long)(time_after_under_blx_limit + TOTAL_WATING_TIME)))
+			{
+				// Battery Life Extender charging limit reached !
+				pr_info("[BATT] %s: Battery Life eXtender - Charging limit reached, cut off charging current! (capacity=%d, voltage=%d, ICHG=%d)\n",
+					__func__, msm_batt_info.batt_capacity, msm_batt_info.battery_voltage, chg_current_adc);
+				msm_batt_info.batt_full_check = 1;
+				msm_batt_info.batt_recharging = 0;
+				msm_batt_info.batt_status = POWER_SUPPLY_STATUS_FULL;
+				time_after_under_blx_limit = 0;
+				msm_batt_chg_en(STOP_CHARGING);
+				return 1;
+			}
+		}
+	}
+	else
+	{
+		time_after_under_blx_limit = 0;
+	}
+#endif
 	return 0;
 }
 
 static int msm_batt_check_recharging(void)
 {
 	static unsigned int time_after_vol1 = 0, time_after_vol2 = 0;
+
+#ifdef CONFIG_BLX
+	// check Battery Life Extender charging limit
+	if (msm_batt_blx_charging_limit_reached())
+	{
+		// Battery Life Extender charging limit reached !
+		pr_info("[BATT] %s: Battery Life eXtender - Charging limit reached, no need to start recharging! (capacity=%d, voltage=%d)\n",
+			__func__, msm_batt_info.batt_capacity, msm_batt_info.battery_voltage);
+		return 0;
+	}
+#endif
 
 
 	if ( (msm_batt_info.batt_full_check == 0) ||
@@ -1595,28 +1648,9 @@ static int msm_batt_check_recharging(void)
 
 static int msm_batt_check_level(int battery_level)
 {
-	/*
-	if (msm_batt_info.batt_full_check)
-	{
-		battery_level = 100;
-	}
-	*/
+if (msm_batt_info.batt_full_check == 0 && battery_level == 100)
+     battery_level = 99;  // not yet fully charged
 	
-/*
-	else if ( (battery_level == 0)
-#ifdef MAX17043_FUEL_GAUGE
-		&& (is_alert == 0)
-#endif
-		)
-	{
-		battery_level = 1;	// not yet alerted low battery (do not power off yet)
-	}
-
-	if (msm_batt_info.battery_voltage< msm_batt_info.voltage_min_design)
-	{
-		battery_level = 0;
-	}
-*/
 	if (msm_batt_info.batt_capacity != battery_level)
 	{
 		pr_info("[BATT] %s: Battery level changed ! (%d -> %d)\n", __func__, msm_batt_info.batt_capacity, battery_level);
@@ -3514,7 +3548,7 @@ static int __devinit msm_batt_probe(struct platform_device *pdev)
 	msm_batt_create_attrs(msm_psy_batt.dev);
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-	msm_batt_info.early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1;
+	msm_batt_info.early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN;
 	msm_batt_info.early_suspend.suspend = msm_batt_early_suspend;
 	msm_batt_info.early_suspend.resume = msm_batt_late_resume;
 	register_early_suspend(&msm_batt_info.early_suspend);
@@ -3611,18 +3645,28 @@ static int __devexit msm_batt_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct dev_pm_ops msm_bat_pm_ops = {
-	.prepare = msm_batt_suspend,
-	.complete = msm_batt_resume,
-};
+static void msm_batt_shutdown(struct platform_device *pdev)
+{
+#if 0
+  int rc;
+ rc = msm_batt_cleanup();
 
+  if (rc < 0) {
+    dev_err(&pdev->dev,
+     "%s: msm_batt_cleanup  failed rc=%d\n", __func__, rc);
+ }
+#endif
+  del_timer_sync(&msm_batt_info.timer);
+}
+ 
 static struct platform_driver msm_batt_driver = {
 	.probe = msm_batt_probe,
 	.remove = __devexit_p(msm_batt_remove),
+	.shutdown = msm_batt_shutdown,
 	.driver = {
 		   .name = "ancora-battery",
 		   .owner = THIS_MODULE,
-		   .pm = &msm_bat_pm_ops,
+		   
 		   },
 };
 
